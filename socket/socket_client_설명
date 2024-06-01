@@ -1,0 +1,67 @@
+#include <stdio.h>        // 표준 입출력 함수 선언 (printf, scanf, perror 등)
+#include <sys/socket.h>   // 소켓 함수 선언 (socket, connect, send, recv 등)
+#include <stdlib.h>       // 일반적인 유틸리티 함수 선언 (exit 등)
+#include <netinet/in.h>   // 인터넷 주소 가족 (sockaddr_in 구조체 등)
+#include <arpa/inet.h>    // 인터넷 주소 변환 함수 (inet_pton 등)
+#include <string.h>       // 문자열 처리 함수 선언 (memset, strcmp, sprintf 등)
+
+// 패킷 구조체 정의
+struct sending_packet {
+    char sender[1024];
+    char receiver[1024];
+    char msg[1024];
+};
+
+void main() {
+    struct sockaddr_in s_addr;                    // 서버 주소 구조체
+    int sock_fd;                                  // 소켓 파일 디스크립터
+    char buffer[1024] = {0};                      // 버퍼 초기화
+    struct sending_packet pck;                    // 패킷 구조체
+    int check;                                    // 반환값 체크 변수
+
+    // 소켓 선언
+    sock_fd = socket(AF_INET, SOCK_STREAM, 0);    // IPv4, TCP 소켓 생성
+    if (sock_fd <= 0) {                           // 소켓 생성 실패 시
+        perror("socket failed: ");                // 에러 메시지 출력
+        exit(1);                                  // 프로그램 종료
+    }
+
+    // 소켓 셋팅
+    memset(&s_addr, '0', sizeof(s_addr));         // 서버 주소 구조체 초기화
+    s_addr.sin_family = AF_INET;                  // IPv4 설정
+    s_addr.sin_port = htons(8080);                // 포트 번호 설정
+    check = inet_pton(AF_INET, "127.0.0.1", &s_addr.sin_addr); // IP 주소 설정
+    if (check <= 0) {                             // IP 주소 변환 실패 시
+        perror("inet_pton failed: ");             // 에러 메시지 출력
+        exit(1);                                  // 프로그램 종료
+    }
+    check = connect(sock_fd, (struct sockaddr *) &s_addr, sizeof(s_addr)); // 서버에 연결 시도
+    if (check < 0) {                              // 연결 실패 시
+        perror("connect failed: ");               // 에러 메시지 출력
+        exit(1);                                  // 프로그램 종료
+    }
+    int flag = 0;                                 // 종료 플래그
+
+    while (1) {
+        // 명령어 창으로 부터 문자열 입력받기
+        scanf("%s", buffer);                      // 사용자로부터 입력받기
+        sprintf(pck.msg, "%s", buffer);           // 입력받은 문자열을 패킷 메시지에 저장
+        sprintf(pck.sender, "Client");            // 패킷 발신자를 "Client"로 설정
+        sprintf(pck.receiver, "Server");          // 패킷 수신자를 "Server"로 설정
+
+        if (strcmp(pck.msg, "quit") == 0) {       // 입력 메시지가 "quit"이면
+            flag = -1;                            // 종료 플래그 설정
+        }
+
+        // 소켓을 통해 데이터 송신
+        send(sock_fd, (struct sending_packet*)&pck, sizeof(pck), 0); // 서버로 패킷 전송
+        // 소켓을 통해 데이터 수신
+        recv(sock_fd, (struct sending_packet*)&pck, sizeof(pck), 0); // 서버로부터 패킷 수신
+        printf("%s: %s\n", pck.sender, pck.msg);   // 수신받은 데이터 출력
+
+        if (flag == -1) {                         // 종료 플래그가 설정되면
+            break;                                // 루프 탈출
+        }
+    }
+    shutdown(sock_fd, SHUT_WR);                   // 송신부 소켓 Close
+}
