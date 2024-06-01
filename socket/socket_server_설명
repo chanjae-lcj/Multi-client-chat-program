@@ -1,0 +1,107 @@
+#include <unistd.h>       // UNIX 표준 함수 선언 (fork, close, etc.)
+#include <stdio.h>        // 표준 입출력 함수 선언 (printf, perror, etc.)
+#include <sys/socket.h>   // 소켓 함수 선언 (socket, bind, listen, accept, etc.)
+#include <stdlib.h>       // 일반적인 유틸리티 함수 선언 (exit, etc.)
+#include <netinet/in.h>   // 인터넷 주소 가족 (sockaddr_in 구조체 등)
+#include <arpa/inet.h>    // 인터넷 주소 변환 함수 (inet_addr, etc.)
+#include <string.h>       // 문자열 처리 함수 선언 (memset, strcmp, etc.)
+
+// 자식 프로세스 함수 선언
+void child_proc(int sock);
+
+// 패킷 수신 함수 선언
+struct sending_packet receive_sock(int sock);
+
+// 패킷 송신 함수 선언
+void send_sock(int sock, struct sending_packet pck);
+
+// 패킷 구조체 정의
+struct sending_packet {
+    char sender[1024];
+    char receiver[1024];
+    char msg[1024];
+};
+
+void main() {
+    int s_sock_fd, new_sock_fd;                   // 서버 소켓과 새로운 클라이언트 소켓 파일 디스크립터
+    struct sockaddr_in s_address, c_address;      // 서버와 클라이언트 주소 구조체
+    int addrlen = sizeof(s_address);              // 주소 구조체의 크기
+    int check;                                    // 반환값 체크 변수
+
+    // 서버 소켓 선언
+    s_sock_fd = socket(AF_INET, SOCK_STREAM, 0);  // IPv4, TCP 소켓 생성
+    if (s_sock_fd == -1) {                        // 소켓 생성 실패 시
+        perror("socket failed: ");                // 에러 메시지 출력
+        exit(1);                                  // 프로그램 종료
+    }
+
+    // 서버 소켓 셋팅
+    memset(&s_address, '0', addrlen);             // 서버 주소 구조체 초기화
+    s_address.sin_family = AF_INET;               // IPv4 설정
+    s_address.sin_addr.s_addr = inet_addr("127.0.0.1"); // IP 주소 설정
+    s_address.sin_port = htons(8080);             // 포트 번호 설정
+    check = bind(s_sock_fd, (struct sockaddr *)&s_address, sizeof(s_address)); // 소켓 바인딩
+    if (check == -1) {                            // 바인딩 실패 시
+        perror("bind error: ");                   // 에러 메시지 출력
+        exit(1);                                  // 프로그램 종료
+    }
+
+    // 아래부터 소켓 통신 시작
+    while (1) {
+        // 클라이언트의 접속을 기다림
+        check = listen(s_sock_fd, 16);            // 소켓을 듣기 모드로 설정, 최대 16개 연결 대기
+        if (check == -1) {                        // 설정 실패 시
+            perror("listen failed: ");            // 에러 메시지 출력
+            exit(1);                              // 프로그램 종료
+        }
+
+        // 클라이언트의 접속을 허가함
+        new_sock_fd = accept(s_sock_fd, (struct sockaddr *)&c_address, (socklen_t*)&addrlen); // 연결 수락
+        if (new_sock_fd < 0) {                    // 수락 실패 시
+            perror("accept failed: ");            // 에러 메시지 출력
+            exit(1);                              // 프로그램 종료
+        }
+
+        // 접속에 성공한 클라이언트와의 통신은 자식 프로세스를 통해서 수행함
+        if (fork() > 0) {                         // 자식 프로세스 생성
+            child_proc(new_sock_fd);              // 자식 프로세스에서 통신 처리
+        } else {                                  // 부모 프로세스는
+            close(new_sock_fd);                   // 새로운 소켓을 닫음
+        }
+    }
+}
+
+void child_proc(int sock) {
+    struct sending_packet pck;                    // 패킷 구조체
+    int flag = 0;                                 // 종료 플래그
+
+    while (1) {
+        pck = receive_sock(sock);                 // 소켓을 통해 데이터 수신
+        printf("%s: %s\n", pck.sender, pck.msg);  // 수신받은 데이터 출력
+        if (strcmp(pck.msg, "quit") == 0) {       // 수신 메시지가 "quit"이면
+            flag = -1;                            // 종료 플래그 설정
+        }
+
+        // 패킷 정보 수정
+        sprintf(pck.msg, "Message received!");    // 응답 메시지 설정
+        sprintf(pck.sender, "Server");            // 발신자 설정
+        sprintf(pck.receiver, "Client");          // 수신자 설정
+
+        send_sock(sock, pck);                     // 데이터 송신
+        if (flag == -1) {                         // 종료 플래그가 설정되면
+            break;                                // 루프 탈출
+        }
+    }
+    shutdown(sock, SHUT_WR);                      // 소켓 종료
+    exit(0);                                      // 프로세스 종료
+}
+
+struct sending_packet receive_sock(int sock) {
+    struct sending_packet pck;                    // 패킷 구조체
+    recv(sock, (struct sending_packet*)&pck, sizeof(pck), 0); // 소켓으로부터 데이터 수신
+    return pck;                                   // 수신된 패킷 반환
+}
+
+void send_sock(int sock, struct sending_packet pck) {
+    send(sock, (struct sending_packet*)&pck, sizeof(pck), 0); // 소켓을 통해 데이터 송신
+}
