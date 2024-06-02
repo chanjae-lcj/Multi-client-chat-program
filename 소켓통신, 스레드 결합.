@@ -1,4 +1,4 @@
-// 서버 
+// 서버
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -65,6 +65,11 @@ int main(int argc, char *argv[]) {
         clnt_sock = accept(serv_sock, (struct sockaddr*)&clnt_adr, &clnt_adr_sz);
 
         pthread_mutex_lock(&mutx);
+        // Send the number of rooms to the client
+        write(clnt_sock, &MAX_ROOMS, sizeof(int));
+        for (int i = 0; i < MAX_ROOMS; i++) {
+            write(clnt_sock, &clnt_cnt[i], sizeof(int));
+        }
         int room;
         read(clnt_sock, &room, sizeof(int));
         clnt_socks[room][clnt_cnt[room]] = clnt_sock;
@@ -196,6 +201,7 @@ void handle_game(int room, int clnt_sock, char *msg) {
 }
 
 
+
 // 클라이언트
 #include <stdio.h>
 #include <stdlib.h>
@@ -258,6 +264,14 @@ int main(int argc, char *argv[]) {
 
     if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1)
         error_handling("connect() error");
+
+    int num_rooms;
+    read(sock, &num_rooms, sizeof(int));
+    int room_counts[MAX_ROOMS];
+    for (int i = 0; i < num_rooms; i++) {
+        read(sock, &room_counts[i], sizeof(int));
+        printf("Room %d: %d users\n", i, room_counts[i]);
+    }
 
     printf("Enter the chat room number: ");
     scanf("%d", &room);
