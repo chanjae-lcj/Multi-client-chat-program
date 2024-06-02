@@ -1,0 +1,306 @@
+// 서버
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <pthread.h>
+#include <signal.h>
+#include <time.h>
+
+#define BUF_SIZE 100
+#define MAX_CLNT 100
+
+void *handle_clnt(void *arg);          // 클라이언트 처리를 위한 함수
+void send_msg(char *msg, int len);     // 메시지를 모든 클라이언트에 전송하는 함수
+void error_handling(char *msg);        // 에러 처리를 위한 함수
+void menu(char port[]);                // 서버 정보를 출력하는 메뉴 함수
+void signal_handler(int sig);          // 시그널 처리를 위한 함수
+
+/****************************/
+
+int clnt_cnt = 0;                      // 클라이언트 수를 저장하는 변수
+int clnt_socks[MAX_CLNT];              // 클라이언트 소켓을 저장하는 배열
+pthread_mutex_t mutx;                  // 뮤텍스 변수
+
+int main(int argc, char *argv[]) {
+    int serv_sock, clnt_sock;          // 서버 소켓과 클라이언트 소켓
+    struct sockaddr_in serv_adr, clnt_adr;  // 서버 주소와 클라이언트 주소 구조체
+    int clnt_adr_sz;                   // 클라이언트 주소 크기
+    pthread_t t_id;                    // 스레드 ID
+
+    // 사용법 출력
+    if (argc != 2) {
+        printf(" Usage : %s <port>\n", argv[0]);
+        exit(1);
+    }
+
+    signal(SIGINT, signal_handler);    // SIGINT 시그널 핸들러 등록
+
+    menu(argv[1]);                     // 메뉴 호출
+
+    pthread_mutex_init(&mutx, NULL);   // 뮤텍스 초기화
+    serv_sock = socket(PF_INET, SOCK_STREAM, 0);  // 서버 소켓 생성
+
+    memset(&serv_adr, 0, sizeof(serv_adr));  // 서버 주소 구조체 초기화
+    serv_adr.sin_family = AF_INET;           // 주소 체계 설정
+    serv_adr.sin_addr.s_addr = htonl(INADDR_ANY);  // IP 주소 설정
+    serv_adr.sin_port = htons(atoi(argv[1]));      // 포트 번호 설정
+
+    // 소켓 바인딩 및 리슨
+    if (bind(serv_sock, (struct sockaddr*)&serv_adr, sizeof(serv_adr)) == -1)
+        error_handling("bind() error");
+    if (listen(serv_sock, 5) == -1)
+        error_handling("listen() error");
+
+    // 클라이언트 연결 처리 루프
+    while (1) {
+        clnt_adr_sz = sizeof(clnt_adr);      // 클라이언트 주소 크기 설정
+        clnt_sock = accept(serv_sock, (struct sockaddr*)&clnt_adr, &clnt_adr_sz);  // 클라이언트 연결 수락
+
+        pthread_mutex_lock(&mutx);           // 뮤텍스 잠금
+        clnt_socks[clnt_cnt++] = clnt_sock;  // 클라이언트 소켓 배열에 추가
+        pthread_mutex_unlock(&mutx);         // 뮤텍스 해제
+
+        // 클라이언트 처리 스레드 생성
+        pthread_create(&t_id, NULL, handle_clnt, (void*)&clnt_sock);
+        pthread_detach(t_id);                // 스레드 분리
+        
+        // 현재 시간 출력
+        time_t timer = time(NULL);
+        struct tm *t = localtime(&timer);
+        
+        printf("Connected client IP: %s (%d-%d-%d %d:%d)\n", 
+               inet_ntoa(clnt_adr.sin_addr), t->tm_year + 1900, t->tm_mon + 1, 
+               t->tm_mday, t->tm_hour, t->tm_min);
+        printf("Chatter (%d/100)\n", clnt_cnt);  // 현재 연결된 클라이언트 수 출력
+    }
+    close(serv_sock);  // 서버 소켓 닫기
+    return 0;
+}
+
+// 클라이언트 처리 함수
+void *handle_clnt(void *arg) {
+    int clnt_sock = *((int*)arg);  // 클라이언트 소켓
+    int str_len = 0;
+    char msg[BUF_SIZE];
+
+    // 메시지 읽기 및 전송
+    while ((str_len = read(clnt_sock, msg, sizeof(msg))) != 0)
+        send_msg(msg, str_len);
+
+    // 연결이 끊긴 클라이언트 제거
+    pthread_mutex_lock(&mutx);
+    for (int i = 0; i < clnt_cnt; i++) {
+        if (clnt_sock == clnt_socks[i]) {
+            while (i++ < clnt_cnt - 1)
+                clnt_socks[i] = clnt_socks[i + 1];
+            break;
+        }
+    }
+    clnt_cnt--;
+    pthread_mutex_unlock(&mutx);
+    close(clnt_sock);  // 클라이언트 소켓 닫기
+    return NULL;
+}
+
+// 모든 클라이언트에 메시지 전송 함수
+void send_msg(char *msg, int len) {
+    pthread_mutex_lock(&mutx);  // 뮤텍스 잠금
+    for (int i = 0; i < clnt_cnt; i++)
+        write(clnt_socks[i], msg, len);
+    pthread_mutex_unlock(&mutx);  // 뮤텍스 해제
+}
+
+// 에러 처리 함수
+void error_handling(char *msg) {
+    fputs(msg, stderr);
+    fputc('\n', stderr);
+    exit(1);
+}
+
+// 시그널 처리 함수
+void signal_handler(int sig) {
+    if (sig == SIGINT) {
+        printf("\nServer shutting down...\n");
+        for (int i = 0; i < clnt_cnt; i++) {
+            close(clnt_socks[i]);
+        }
+        exit(0);
+    }
+}
+
+// 서버 정보 출력 함수
+void menu(char port[]) {
+    system("clear");
+    printf("<<<< Chat server >>>>\n");
+    printf("Server port    : %s\n", port);
+    printf("Max Client : %d\n", MAX_CLNT);
+    printf("<<<<          Log         >>>>\n\n");
+}
+
+
+
+// 클라이언트
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <pthread.h>
+#include <signal.h>
+#include <time.h>
+
+#define BUF_SIZE 100
+#define NORMAL_SIZE 20
+
+void *send_msg(void *arg);        // 메시지 전송 함수
+void *recv_msg(void *arg);        // 메시지 수신 함수
+void error_handling(char *msg);   // 에러 처리 함수
+void menu();                      // 메뉴 출력 함수
+void change_name();               // 이름 변경 함수
+void update_screen();             // 화면 업데이트 함수
+void signal_handler(int sig);     // 시그널 처리 함수
+
+char name[NORMAL_SIZE] = "[DEFAULT]"; // 이름
+char msg_form[NORMAL_SIZE];           // 메시지 형식
+char serv_time[NORMAL_SIZE];          // 서버 시간
+char msg[BUF_SIZE];                   // 메시지
+char serv_port[NORMAL_SIZE];          // 서버 포트 번호
+char clnt_ip[NORMAL_SIZE];            // 클라이언트 IP 주소
+int sock;
+
+int main(int argc, char *argv[]) {
+    struct sockaddr_in serv_addr;
+    pthread_t snd_thread, rcv_thread;
+    void *thread_return;
+
+    // 사용법 출력
+    if (argc != 4) {
+        printf(" Usage : %s <ip> <port> <name>\n", argv[0]);
+        exit(1);
+    }
+
+    signal(SIGINT, signal_handler); // SIGINT 시그널 핸들러 등록
+
+    time_t timer = time(NULL);
+    struct tm *t = localtime(&timer);
+    sprintf(serv_time, "%d-%d-%d %d:%d", t->tm_year + 1900, t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min);
+
+    sprintf(name, "[%s]", argv[3]);
+    sprintf(clnt_ip, "%s", argv[1]);
+    sprintf(serv_port, "%s", argv[2]);
+    sock = socket(PF_INET, SOCK_STREAM, 0);
+
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = inet_addr(argv[1]);
+    serv_addr.sin_port = htons(atoi(argv[2]));
+
+    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1)
+        error_handling("connect() error");
+
+    menu(); // 메뉴 호출
+
+    pthread_create(&snd_thread, NULL, send_msg, (void*)&sock); // 메시지 전송 스레드 생성
+    pthread_create(&rcv_thread, NULL, recv_msg, (void*)&sock); // 메시지 수신 스레드 생성
+    pthread_join(snd_thread, &thread_return);
+    pthread_join(rcv_thread, &thread_return);
+    close(sock); // 소켓 닫기
+    return 0;
+}
+
+// 메시지 전송 함수
+void *send_msg(void *arg) {
+    int sock = *((int*)arg);
+    char name_msg[NORMAL_SIZE + BUF_SIZE];
+    char myInfo[BUF_SIZE];
+
+    // 채팅방 참여 메시지 전송
+    printf(">> Join the chat !! \n");
+    sprintf(myInfo, "%s's join. IP_%s\n", name, clnt_ip);
+    write(sock, myInfo, strlen(myInfo));
+
+    while (1) {
+        fgets(msg, BUF_SIZE, stdin);
+
+        if (!strcmp(msg, "q\n") || !strcmp(msg, "Q\n")) {
+            close(sock);
+            exit(0);
+        } else if (!strcmp(msg, "1\n")) {
+            change_name();  // 이름 변경
+        } else if (!strcmp(msg, "2\n")) {
+            update_screen();  // 화면 업데이트
+        } else {
+            sprintf(name_msg, "%s %s", name, msg);
+            write(sock, name_msg, strlen(name_msg)); // 메시지 전송
+        }
+    }
+    return NULL;
+}
+
+// 메시지 수신 함수
+void *recv_msg(void *arg) {
+    int sock = *((int*)arg);
+    char name_msg[NORMAL_SIZE + BUF_SIZE];
+    int str_len;
+
+    while (1) {
+        str_len = read(sock, name_msg, NORMAL_SIZE + BUF_SIZE - 1);
+        if (str_len == -1)
+            return (void*)-1;
+        name_msg[str_len] = 0;
+        fputs(name_msg, stdout); // 수신한 메시지 출력
+    }
+    return NULL;
+}
+
+// 에러 처리 함수
+void error_handling(char *msg) {
+    fputs(msg, stderr);
+    fputc('\n', stderr);
+    exit(1);
+}
+
+// 메뉴 출력 함수
+void menu() {
+    system("clear");
+    printf("<<<< Chat Client >>>>\n");
+    printf("Server Port : %s \n", serv_port);
+    printf("Client IP   : %s \n", clnt_ip);
+    printf("Chat Name   : %s \n", name);
+    printf("Server Time : %s \n", serv_time);
+    printf("============ Mode ============\n");
+    printf("0. Select mode\n");
+    printf("1. Change name\n");
+    printf("2. Clear/Update\n");
+    printf("===============================\n");
+    printf("Exit -> q & Q\n\n");
+}
+
+// 이름 변경 함수
+void change_name() {
+    char new_name[NORMAL_SIZE];
+    printf("Enter new name: ");
+    fgets(new_name, NORMAL_SIZE, stdin);
+    new_name[strcspn(new_name, "\n")] = 0; // 개행 문자 제거
+    sprintf(name, "[%s]", new_name);
+    printf("Name changed to %s\n", name);
+}
+
+// 화면 업데이트 함수
+void update_screen() {
+    menu();
+}
+
+// 시그널 처리 함수
+void signal_handler(int sig) {
+    if (sig == SIGINT) {
+        printf("\nClient shutting down...\n");
+        close(sock);
+        exit(0);
+    }
+}
+
