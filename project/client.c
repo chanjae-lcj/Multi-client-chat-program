@@ -1,4 +1,5 @@
-// 클라이언트
+// 채팅 프로그램 클라이언트
+
 #include<stdio.h>
 #include<stdlib.h>
 #include<unistd.h>
@@ -123,8 +124,8 @@ void* recv_msg(void* arg)
         name_msg[str_len] = 0;
         fputs(name_msg, stdout);
 
-        if (strstr(name_msg, "You moved to room") != NULL) {
-            sscanf(name_msg, "You moved to room %d", &current_room);
+        if (strstr(name_msg, "채팅룸을 옮겼습니다.") != NULL) {
+            sscanf(name_msg, "--- %d채팅룸으로 이동했습니다. ---", &current_room);
             updateMenu();
         }
     }
@@ -153,7 +154,7 @@ void menu()
 void menuOptions()
 {
     int option;
-    printf("Select mode: ");
+    printf("mode를 선택하세요.: ");
     scanf("%d", &option);
     getchar(); // to consume the newline character after entering the option
     switch (option)
@@ -171,7 +172,7 @@ void menuOptions()
             break;
         }
         case 2:
-            updateMenu();
+            menu();
             break;
         case 3:
             sprintf(msg, "/game");
@@ -179,11 +180,11 @@ void menuOptions()
             break;
         case 4: {
             int new_room;
-            printf("Enter room number to move (1-3): ");
+            printf("<<< 채팅룸(1~3)을 선택하세요. >>>");
             scanf("%d", &new_room);
             getchar(); // to consume the newline character
             if (new_room < 1 || new_room > 3) {
-                printf("Invalid room number. Please enter a number between 1 and 3.\n");
+                printf("!!! 1부터 3까지만 입력하세요. !!!\n");
                 break;
             }
             sprintf(msg, "/move %d", new_room);
@@ -195,25 +196,6 @@ void menuOptions()
             break;
     }
     mode = 1; // switch back to chat mode
-}
-
-void updateMenu()
-{
-    system("clear");
-    printf(" <<<< Chat Client >>>>\n");
-    printf(" Server Port : %s \n", serv_port);
-    printf(" Client IP   : %s \n", clnt_ip);
-    printf(" Chat Name   : %s \n", name);
-    printf(" Server Time : %s \n", serv_time);
-    printf(" Current Room: %d \n", current_room);
-    printf(" ============= Mode =============\n");
-    printf(" /m & /M. Select mode\n");
-    printf(" 1. Change name\n");
-    printf(" 2. Clear/Update\n");
-    printf(" 3. Random Game\n");
-    printf(" 4. Move Room\n");
-    printf(" ================================\n");
-    printf(" Exit -> /q & /Q\n\n");
 }
 
 void error_handling(char* msg)
