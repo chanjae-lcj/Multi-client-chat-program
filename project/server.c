@@ -1,4 +1,5 @@
-// 서버
+// 채팅 프로그램 서버
+
 #include<stdio.h>
 #include<stdlib.h>
 #include<unistd.h>
@@ -108,7 +109,7 @@ void *handle_clnt(void *arg)
         }
     }
 
-    // remove disconnected client
+    // 연결이 끊긴 클라이언트 제거
     pthread_mutex_lock(&mutx);
     for (i = 0; i < clnt_cnt[room]; i++)
     {
@@ -175,7 +176,7 @@ void handle_random_game(int clnt_sock, int room)
     char winner_name[NAME_SIZE];
 
     for (int i = 0; i < clnt_cnt[room]; i++) {
-        int rand_num = rand() % 100 + 1; // Generate random number between 1 and 100
+        int rand_num = rand() % 100 + 1; // 미니게임용 난수 1~100
         if (rand_num > max_rand) {
             max_rand = rand_num;
             winner_sock = clnt_socks[room][i];
@@ -223,6 +224,6 @@ void change_room(int clnt_sock, int new_room)
     clnt_rooms[i] = new_room;
     pthread_mutex_unlock(&mutx);
 
-    sprintf(msg, "You moved to room %d\n", new_room + 1);
+    sprintf(msg, "채팅룸 %d로 변경.\n", new_room + 1);
     write(clnt_sock, msg, strlen(msg));
 }
