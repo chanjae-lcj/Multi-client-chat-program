@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
     menu(argv[1]);
     while (1)
     {
-        timer = time(NULL); // get time
+        timer = time(NULL); 
         t = localtime(&timer);
         clnt_adr_sz = sizeof(clnt_adr);
         clnt_sock = accept(serv_sock, (struct sockaddr*)&clnt_adr, &clnt_adr_sz);
@@ -101,7 +101,7 @@ void *handle_clnt(void *arg)
         if (strncmp(msg, "/game", 5) == 0) {
             handle_random_game(clnt_sock, room);
         } else if (strncmp(msg, "/move", 5) == 0) {
-            int new_room = atoi(msg + 6) - 1;  // "/move N" 명령어 처리
+            int new_room = atoi(msg + 6) - 1; 
             change_room(clnt_sock, new_room);
             room = new_room;
         } else {
@@ -182,11 +182,11 @@ void handle_random_game(int clnt_sock, int room)
             winner_sock = clnt_socks[room][i];
             strcpy(winner_name, clnt_names[i]);  // 승자 이름 저장
         }
-        sprintf(msg, "%s's number: %d\n", clnt_names[i], rand_num);
+        sprintf(msg, "%s님의 숫자 : %d\n", clnt_names[i], rand_num);
         send_msg(msg, strlen(msg), room);
     }
     if (winner_sock != -1) {
-        sprintf(msg, "Winner is %s with number %d!\n", winner_name, max_rand);
+        sprintf(msg, "!!! 숫자 : %d 으로 승자는 %s님입니다 !!!\n", max_rand, winner_name);
         send_msg(msg, strlen(msg), room);
     }
 }
